@@ -13,9 +13,13 @@ Servo servo;
 float sensibilidade = 2.0; 
 float anguloBase = 0;      
 
-// Limites do servo
 const int servoMin = 60;   
 const int servoMax = 150;  
+
+float anguloFiltrado = 0;
+float alpha = 0.9; 
+
+int servoAtual = 90;
 
 void setup() {
   Serial.begin(9600);
@@ -28,17 +32,17 @@ void setup() {
 
   servo.attach(SERVO_PIN, 500, 2400);
 
-  // Calibração 
-
   Serial.println("Segure a bengala na altura normal para calibrar...");
   delay(2000);
 
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+
   anguloBase = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
 
   Serial.print("Angulo base calibrado: ");
   Serial.println(anguloBase);
+  anguloFiltrado = 0;
 }
 
 void loop() {
@@ -50,21 +54,24 @@ void loop() {
 
   float angulo = atan2(accY, accZ) * 180 / PI;
 
-  // diferença em relação à posição neutra + sensibilidade
-  float anguloRelativo = (angulo - anguloBase) * sensibilidade;
+  float anguloRelativoRaw = (angulo - anguloBase) * sensibilidade;
 
-  // câmera corrige pra baixo quando a bengala sobe
-  int servoPos = 90 - anguloRelativo;
+  anguloFiltrado = alpha * anguloFiltrado + (1 - alpha) * anguloRelativoRaw;
 
-  // limitar faixa de movimento
-  servoPos = constrain(servoPos, servoMin, servoMax);
+  int servoTarget = 96 - anguloFiltrado;
+  servoTarget = constrain(servoTarget, servoMin, servoMax);
 
-  servo.write(servoPos);
+  if (servoAtual < servoTarget) servoAtual++;
+  else if (servoAtual > servoTarget) servoAtual--;
 
-  Serial.print("Angulo relativo: ");
-  Serial.print(anguloRelativo);
-  Serial.print("  Servo: ");
-  Serial.println(servoPos);
+  servo.write(servoAtual);
+
+  Serial.print("Raw: ");
+  Serial.print(anguloRelativoRaw);
+  Serial.print(" | Filtrado: ");
+  Serial.print(anguloFiltrado);
+  Serial.print(" | Servo: ");
+  Serial.println(servoAtual);
 
   delay(20);
 }
