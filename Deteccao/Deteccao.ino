@@ -28,11 +28,24 @@
 #include "edge-impulse-sdk/dsp/image/image.hpp"
 
 #include "esp_camera.h"
-
-// --- ADICIONADO PARA BLUETOOTH ---
 #include "BluetoothSerial.h"
+#include <stdarg.h>
+
 BluetoothSerial SerialBT;
-// ---------------------------------
+
+void bt_printf(const char *format, ...) {
+    char buffer[256];
+
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    Serial.print(buffer);
+    SerialBT.print(buffer);
+}
+
+#define ei_printf(...) bt_printf(__VA_ARGS__)
 
 // Select camera model - find more camera models in camera_pins.h file here
 // https://github.com/espressif/arduino-esp32/blob/master/libraries/ESP32/examples/Camera/CameraWebServer/camera_pins.h
@@ -85,7 +98,7 @@ BluetoothSerial SerialBT;
 /* Constant defines -------------------------------------------------------- */
 #define EI_CAMERA_RAW_FRAME_BUFFER_COLS           320
 #define EI_CAMERA_RAW_FRAME_BUFFER_ROWS           240
-#define EI_CAMERA_FRAME_BYTE_SIZE                  3
+#define EI_CAMERA_FRAME_BYTE_SIZE                 3
 
 /* Private variables ------------------------------------------------------- */
 static bool debug_nn = false; // Set this to true to see e.g. features generated from the raw signal
@@ -130,20 +143,6 @@ bool ei_camera_init(void);
 void ei_camera_deinit(void);
 bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) ;
 
-// --- FUNÇÃO AUXILIAR PARA DUPLICAR SAÍDA ---
-void bt_printf(const char *format, ...) {
-    char loc_buf[128];
-    va_list arg;
-    va_start(arg, format);
-    int len = vsnprintf(loc_buf, sizeof(loc_buf), format, arg);
-    va_end(arg);
-    if (len > 0) {
-        Serial.print(loc_buf);
-        SerialBT.print(loc_buf);
-    }
-}
-// -------------------------------------------
-
 /**
 * @brief      Arduino setup function
 */
@@ -151,21 +150,21 @@ void setup()
 {
     // put your setup code here, to run once:
     Serial.begin(115200);
-
-    SerialBT.begin("ESP32-Cam-AI"); 
-    // ----------------------------
+    SerialBT.begin("ESP32-CAM");
 
     //comment out the below line to start inference immediately after upload
     while (!Serial);
-    bt_printf("Edge Impulse Inferencing Demo\r\n");
+
+    Serial.println("Edge Impulse Inferencing Demo");
+
     if (ei_camera_init() == false) {
-        bt_printf("Failed to initialize Camera!\r\n");
+        ei_printf("Failed to initialize Camera!\r\n");
     }
     else {
-        bt_printf("Camera initialized\r\n");
+        ei_printf("Camera initialized\r\n");
     }
 
-    bt_printf("\nStarting continious inference in 2 seconds...\n");
+    ei_printf("\nStarting continious inference in 2 seconds...\n");
     ei_sleep(2000);
 }
 
@@ -186,7 +185,7 @@ void loop()
 
     // check if allocation was successful
     if(snapshot_buf == nullptr) {
-        bt_printf("ERR: Failed to allocate snapshot buffer!\n");
+        ei_printf("ERR: Failed to allocate snapshot buffer!\n");
         return;
     }
 
@@ -195,7 +194,7 @@ void loop()
     signal.get_data = &ei_camera_get_data;
 
     if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) {
-        bt_printf("Failed to capture image\r\n");
+        ei_printf("Failed to capture image\r\n");
         free(snapshot_buf);
         return;
     }
@@ -205,22 +204,22 @@ void loop()
 
     EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
     if (err != EI_IMPULSE_OK) {
-        bt_printf("ERR: Failed to run classifier (%d)\n", err);
+        ei_printf("ERR: Failed to run classifier (%d)\n", err);
         return;
     }
 
     // print the predictions
-    bt_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
+    ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
                 result.timing.dsp, result.timing.classification, result.timing.anomaly);
 
 #if EI_CLASSIFIER_OBJECT_DETECTION == 1
-    bt_printf("Object detection bounding boxes:\r\n");
+    ei_printf("Object detection bounding boxes:\r\n");
     for (uint32_t i = 0; i < result.bounding_boxes_count; i++) {
         ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
         if (bb.value == 0) {
             continue;
         }
-        bt_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+        ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
                 bb.label,
                 bb.value,
                 bb.x,
@@ -231,26 +230,26 @@ void loop()
 
     // Print the prediction results (classification)
 #else
-    bt_printf("Predictions:\r\n");
+    ei_printf("Predictions:\r\n");
     for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-        bt_printf("  %s: ", ei_classifier_inferencing_categories[i]);
-        bt_printf("%.5f\r\n", result.classification[i].value);
+        ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
+        ei_printf("%.5f\r\n", result.classification[i].value);
     }
 #endif
 
     // Print anomaly result (if it exists)
 #if EI_CLASSIFIER_HAS_ANOMALY
-    bt_printf("Anomaly prediction: %.3f\r\n", result.anomaly);
+    ei_printf("Anomaly prediction: %.3f\r\n", result.anomaly);
 #endif
 
 #if EI_CLASSIFIER_HAS_VISUAL_ANOMALY
-    bt_printf("Visual anomalies:\r\n");
+    ei_printf("Visual anomalies:\r\n");
     for (uint32_t i = 0; i < result.visual_ad_count; i++) {
         ei_impulse_result_bounding_box_t bb = result.visual_ad_grid_cells[i];
         if (bb.value == 0) {
             continue;
         }
-        bt_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+        ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
                 bb.label,
                 bb.value,
                 bb.x,
@@ -329,10 +328,10 @@ void ei_camera_deinit(void) {
 /**
  * @brief      Capture, rescale and crop image
  *
- * @param[in]  img_width      width of output image
- * @param[in]  img_height     height of output image
- * @param[in]  out_buf        pointer to store output image, NULL may be used
- * if ei_camera_frame_buffer is to be used for capture and resize/cropping.
+ * @param[in]  img_width     width of output image
+ * @param[in]  img_height    height of output image
+ * @param[in]  out_buf       pointer to store output image, NULL may be used
+ *                           if ei_camera_frame_buffer is to be used for capture and resize/cropping.
  *
  * @retval     false if not initialised, image captured, rescaled or cropped failed
  *
